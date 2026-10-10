@@ -1,0 +1,50 @@
+{
+  "boards": {
+    "P1": {
+      "pins": {
+        "red": 4,
+        "green": 16,
+        "blue": 17,
+        "led": 25
+      },
+      "target": ""
+    },
+    "P2": {
+      "pins": {
+        "red": 18,
+        "green": 19,
+        "blue": 21,
+        "led": 22
+      },
+      "target": ""
+    }
+  },
+  "connection": "network",
+  "emulate": true,
+  "keys": {
+    "P1": [
+      "a",
+      "s",
+      "d"
+    ],
+    "P2": [
+      ";",
+      "l",
+      "k"
+    ]
+  },
+  "pins": {
+    "P1": {
+      "button": 4,
+      "led": 25
+    },
+    "P2": {
+      "button": 16,
+      "led": 17
+    }
+  },
+  "ports": {
+    "P1": "/dev/ttyUSB0",
+    "P2": "/dev/ttyUSB1"
+  }
+}

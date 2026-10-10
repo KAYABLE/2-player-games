@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cowboy Standoff</title>
+<style>
+  :root { --bg:#120d08; --panel:#241a10; --gold:#f2b84b; --text:#f5e6c8; --red:#e5484d; --green:#46a758; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:Georgia,serif; min-height:100vh; }
+  .screen { display:none; min-height:100vh; padding:24px; flex-direction:column; align-items:center; }
+  .screen.active { display:flex; }
+  h1 { color:var(--gold); letter-spacing:2px; text-align:center; }
+  button { font:inherit; background:var(--panel); color:var(--text); border:2px solid var(--gold);
+           border-radius:8px; padding:12px 24px; cursor:pointer; min-width:240px; }
+  button:hover { background:#34250f; }
+  button.danger { border-color:var(--red); }
+  .stack { display:flex; flex-direction:column; gap:14px; margin-top:32px; align-items:center; }
+  .panel { background:var(--panel); border-radius:12px; padding:20px; width:min(620px,100%); margin-top:16px; }
+  .row { display:flex; gap:12px; align-items:center; margin:10px 0; flex-wrap:wrap; }
+  .row > label { min-width:130px; }
+  input[type=number], select { background:#1a120a; color:var(--text); border:1px solid #5a4424;
+           border-radius:6px; padding:8px; font:inherit; }
+  input[type=number] { width:90px; }
+  select { min-width:260px; }
+  input[type=checkbox] { transform:scale(1.4); margin-left:6px; }
+  .lobby-grid { display:flex; gap:20px; margin-top:32px; width:min(760px,100%); }
+  .lobby-grid .panel { flex:1; text-align:center; margin:0; }
+  .ready { font-size:1.4rem; margin-top:12px; color:#aaa; }
+  .ready.is-ready { color:var(--green); }
+  #hint { color:#998; margin-top:24px; text-align:center; }
+
+  /* game: the screen is split in half, one half per player */
+  #game { padding:0; flex-direction:row; height:100vh; overflow:hidden; }
+  .half { position:relative; flex:1; display:flex; flex-direction:column; align-items:center;
+          justify-content:center; background:#111; color:#fff; transition:background .25s;
+          text-align:center; padding:16px; }
+  .half + .half { border-left:3px solid #000; }
+  .who { position:absolute; top:16px; font-size:1.1rem; opacity:.7; letter-spacing:2px; }
+  .big { font-size:min(14vw,180px); font-weight:bold; min-height:1.2em; line-height:1.1; }
+  .big.pop { animation:pop .35s ease-out; }
+  @keyframes pop { 0% { transform:scale(1.6); opacity:0; } 100% { transform:scale(1); opacity:1; } }
+  .sub { font-size:1.6rem; min-height:1.6em; margin-top:16px; }
+  #result { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
+            background:rgba(0,0,0,.85); color:var(--gold); font-size:min(7vw,3.5rem);
+            padding:24px 40px; border-radius:12px; display:none; text-align:center; z-index:4; }
+  #result.show { display:block; }
+  .leave { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); z-index:5; }
+</style>
+</head>
+<body>
+
+<!-- MAIN MENU -->
+<section id="menu" class="screen active">
+  <h1>🤠 2 PLAYER GAMES</h1>
+  <div class="stack" id="game-list"></div>
+  <div class="stack"><button onclick="openSettings()">Settings</button></div>
+</section>
+
+<!-- LOBBY -->
+<section id="lobby" class="screen">
+  <h1>LOBBY</h1>
+  <p>Press any button on your board to get ready.</p>
+  <div class="lobby-grid">
+    <div class="panel"><h2>Player 1</h2><div class="ready" id="ready-P1">Waiting</div></div>
+    <div class="panel"><h2>Player 2</h2><div class="ready" id="ready-P2">Waiting</div></div>
+  </div>
+  <p id="hint"></p>
+  <div class="stack"><button class="danger" onclick="leave()">Back</button></div>
+</section>
+
+<!-- GAME -->
+<section id="game" class="screen">
+  <div class="half" id="half-P1">
+    <div class="who">PLAYER 1</div>
+    <div class="big" id="big-P1"></div>
+    <div class="sub" id="sub-P1"></div>
+  </div>
+  <div class="half" id="half-P2">
+    <div class="who">PLAYER 2</div>
+    <div class="big" id="big-P2"></div>
+    <div class="sub" id="sub-P2"></div>
+  </div>
+  <div id="result"></div>
+  <button class="leave" onclick="leave()">Leave</button>
+</section>
+
+<!-- SETTINGS -->
+<section id="settings" class="screen">
+  <h1>SETTINGS</h1>
+
+  <div class="panel">
+    <div class="row">
+      <label for="emulate">Emulate hardware</label>
+      <input type="checkbox" id="emulate" onchange="renderSettings()">
+    </div>
+  </div>
+
+  <div class="panel" id="hw-panel">
+    <h2>ESP32 settings</h2>
+    <div class="row">
+      <label for="conn">Connect to ESP32</label>
+      <input type="checkbox" id="conn" onchange="toggleConnection()">
+      <span id="conn-label"></span>
+    </div>
+    <div id="boards"></div>
+  </div>
+
+  <div class="panel" id="kb-panel">
+    <h2>Keyboard settings</h2>
+    <div id="keys"></div>
+    <p>Click a key button, then press the key you want to use.</p>
+  </div>
+
+  <div class="stack">
+    <button onclick="saveSettings()">Save</button>
+    <button onclick="showScreen('menu')">Back</button>
+  </div>
+</section>
+
+<script>
+const PLAYERS = ["P1", "P2"];
+const COLOR_NAMES = ["red", "green", "blue"];
+const COLORS = { red: "#c62828", green: "#2e7d32", blue: "#1565c0" };
+
+let settings = null;
+let screen = "menu";
+let binding = null;        // { p, j } while waiting for a key
+let lastMsgId = -1;
+let refreshTimer = null;
+
+function keyLabel(k) { return k === " " ? "Space" : k; }
+
+async function api(path, body) {
+  const opts = body === undefined ? {} : {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  };
+  return (await fetch(path, opts)).json();
+}
+
+function showScreen(name) {
+  screen = name;
+  document.querySelectorAll(".screen").forEach(s => s.classList.toggle("active", s.id === name));
+  clearInterval(refreshTimer);
+  refreshTimer = null;
+  if (name === "settings") refreshTimer = setInterval(refreshBoards, 2000);
+}
+
+async function loadGames() {
+  const games = await api("/api/games");
+  const box = document.getElementById("game-list");
+  box.innerHTML = "";
+  for (const g of games) {
+    const b = document.createElement("button");
+    b.textContent = g.name;
+    b.title = g.description;
+    b.onclick = () => playGame(g.id);
+    box.appendChild(b);
+  }
+}
+
+async function playGame(id) {
+  const r = await api("/api/start", { game: id });
+  if (r.error) alert(r.error);
+}
+
+async function leave() {
+  await api("/api/stop", {});
+  showScreen("menu");
+}
+
+// ---------- settings ----------
+
+function buildSettingsUI() {
+  document.getElementById("boards").innerHTML = PLAYERS.map((p, i) => `
+    <h3>Board ${i + 1} (${p})</h3>
+    <div class="row">
+      <label>Board</label>
+      <select id="target-${p}"></select>
+      <button onclick="refreshBoards()" style="min-width:auto">Search</button>
+    </div>
+    <div class="row"><label>LED pin</label><input type="number" id="led-${p}"></div>
+    <div class="row"><label>Red button pin</label><input type="number" id="red-${p}"></div>
+    <div class="row"><label>Green button pin</label><input type="number" id="green-${p}"></div>
+    <div class="row"><label>Blue button pin</label><input type="number" id="blue-${p}"></div>
+  `).join("");
+
+  document.getElementById("keys").innerHTML = PLAYERS.map((p, i) => `
+    <h3>Player ${i + 1}</h3>
+    ${COLOR_NAMES.map((c, j) => `
+      <div class="row">
+        <label>${c[0].toUpperCase() + c.slice(1)}</label>
+        <button id="key-${p}-${j}" style="min-width:200px"
+                onclick="startBind('${p}', ${j})"></button>
+      </div>`).join("")}
+  `).join("");
+}
+
+async function openSettings() {
+  settings = await api("/api/settings");
+  document.getElementById("emulate").checked = settings.emulate;
+  document.getElementById("conn").checked = settings.connection === "usb";
+  for (const p of PLAYERS) {
+    const pins = settings.boards[p].pins;
+    document.getElementById("led-" + p).value = pins.led;
+    for (const c of COLOR_NAMES) document.getElementById(c + "-" + p).value = pins[c];
+  }
+  renderKeys();
+  renderSettings();
+  showScreen("settings");
+  refreshBoards();
+}
+
+function renderSettings() {
+  const emu = document.getElementById("emulate").checked;
+  const usb = document.getElementById("conn").checked;
+  document.getElementById("hw-panel").style.display = emu ? "none" : "block";
+  document.getElementById("kb-panel").style.display = emu ? "block" : "none";
+  document.getElementById("conn-label").textContent = usb ? "USB" : "Network (default)";
+}
+
+function toggleConnection() {
+  settings.connection = document.getElementById("conn").checked ? "usb" : "network";
+  for (const p of PLAYERS) {
+    settings.boards[p].target = "";
+    const sel = document.getElementById("target-" + p);
+    sel.innerHTML = "";
+    sel.dataset.sig = "";
+  }
+  renderSettings();
+  refreshBoards();
+}
+
+async function refreshBoards() {
+  if (!document.getElementById("target-P1")) return;
+  const items = await api("/api/discover");
+  const sig = items.map(i => i.target).join("|");
+  for (const p of PLAYERS) {
+    const sel = document.getElementById("target-" + p);
+    const current = sel.value || settings.boards[p].target;
+    if (sel.dataset.sig === sig && sel.options.length) continue;   // no change, don't disturb the dropdown
+    sel.dataset.sig = sig;
+
+    const list = items.slice();
+    if (current && !list.some(i => i.target === current))
+      list.unshift({ target: current, label: current + "  (saved)" });
+
+    sel.innerHTML = list.length
+      ? list.map(i => `<option value="${i.target}">${i.label}</option>`).join("")
+      : `<option value="">No boards found</option>`;
+    if (current) sel.value = current;
+  }
+}
+
+function renderKeys() {
+  PLAYERS.forEach(p => COLOR_NAMES.forEach((c, j) => {
+    const el = document.getElementById(`key-${p}-${j}`);
+    const waiting = binding && binding.p === p && binding.j === j;
+    const key = settings.keys[p][j];
+    el.textContent = waiting ? "press a key…" : (key ? keyLabel(key) : "assign");
+  }));
+}
+
+function startBind(p, j) {
+  binding = { p, j };
+  document.activeElement?.blur();   // stops the button's own click from firing again
+  renderKeys();
+}
+
+async function saveSettings() {
+  settings.emulate = document.getElementById("emulate").checked;
+  settings.connection = document.getElementById("conn").checked ? "usb" : "network";
+  for (const p of PLAYERS) {
+    settings.boards[p].target = document.getElementById("target-" + p).value || "";
+    settings.boards[p].pins = {
+      red: parseInt(document.getElementById("red-" + p).value, 10),
+      green: parseInt(document.getElementById("green-" + p).value, 10),
+      blue: parseInt(document.getElementById("blue-" + p).value, 10),
+      led: parseInt(document.getElementById("led-" + p).value, 10),
+    };
+  }
+  settings = await api("/api/settings", settings);
+  alert("Saved");
+  showScreen("menu");
+}
+
+// ---------- keyboard ----------
+
+document.addEventListener("keydown", e => {
+  const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+
+  if (binding) {
+    e.preventDefault();
+    if (key === "Escape") {               // cancel
+      binding = null;
+      renderKeys();
+      return;
+    }
+    // a key can only be used once, so clear it from any other slot
+    for (const p of PLAYERS)
+      settings.keys[p] = settings.keys[p].map(k => (k === key ? "" : k));
+    settings.keys[binding.p][binding.j] = key;
+    binding = null;
+    renderKeys();
+    return;
+  }
+
+  if (!settings || !settings.emulate) return;
+  if (screen !== "lobby" && screen !== "game") return;
+  if (e.repeat) return;
+
+  for (const p of PLAYERS) {
+    settings.keys[p].forEach((k, j) => {
+      if (k === key) {
+        e.preventDefault();
+        api("/api/press", { player: p, color: COLOR_NAMES[j] });
+      }
+    });
+  }
+});
+
+// ---------- live state from the server ----------
+
+async function poll() {
+  let s;
+  try {
+    s = await (await fetch("/api/state")).json();
+  } catch {
+    return;
+  }
+
+  if (screen !== "settings") {
+    if (s.mode === "lobby" && screen !== "lobby") showScreen("lobby");
+    if (s.mode === "game" && screen !== "game") showScreen("game");
+    if (s.mode === "menu" && screen !== "menu") showScreen("menu");
+  }
+
+  // lobby
+  for (const p of PLAYERS) {
+    const el = document.getElementById("ready-" + p);
+    el.textContent = s.ready[p] ? "READY ✔" : "Press any button";
+    el.classList.toggle("is-ready", !!s.ready[p]);
+  }
+    document.getElementById("hint").textContent = s.emulate
+    ? `Press any of your three keys to ready up.  Player 1: ${s.keys.P1.map(keyLabel).join(" ")}   Player 2: ${s.keys.P2.map(keyLabel).join(" ")}`
+    : "Press any button on your board to ready up.";
+
+  // game: both halves show the same message, each in its own colour
+  const newMessage = s.msg_id !== lastMsgId;
+  lastMsgId = s.msg_id;
+  for (const p of PLAYERS) {
+    const half = document.getElementById("half-" + p);
+    half.style.background = s.panels[p] ? COLORS[s.panels[p]] : "#111";
+    document.getElementById("big-" + p).textContent = s.message;
+
+    const sub = document.getElementById("sub-" + p);
+    if (s.status[p]) sub.textContent = s.status[p];
+    else if (s.reactions[p] !== undefined) sub.textContent = s.reactions[p].toFixed(2) + " ms";
+    else sub.textContent = "";
+  }
+  if (newMessage) {
+    document.querySelectorAll(".big").forEach(el => {
+      el.classList.remove("pop");
+      void el.offsetWidth;
+      el.classList.add("pop");
+    });
+  }
+  const res = document.getElementById("result");
+  res.textContent = s.result || "";
+  res.classList.toggle("show", !!s.result);
+}
+
+(async () => {
+  settings = await api("/api/settings");
+  buildSettingsUI();
+  await loadGames();
+})();
+setInterval(poll, 150);
+</script>
+</body>
+</html>
