@@ -2,9 +2,22 @@ import random
 from games.common import PLAYERS, NAMES, lobby, pause
 
 NAME = "Russian Roulette"
-DESCRIPTION = "One bullet, six chambers. Take turns pulling the trigger. Whoever hits the bullet loses."
+DESCRIPTION = "Red shoots the other player, green shoots yourself, blue passes the turn."
 
 CHAMBERS = 6
+OTHER = {"P1": "P2", "P2": "P1"}
+
+
+def wait_for_colour(board, shooter, stop):
+    """Return the colour the shooter pressed, or None if stopped."""
+    board.reset()
+    board.lobby()
+    while not stop.is_set():
+        for player, kind, colour, _ in board.read_events():
+            if player == shooter and kind == "READY":
+                return colour
+        pause(0.01, stop)
+    return None
 
 
 def play(board, notify, stop):
@@ -13,44 +26,46 @@ def play(board, notify, stop):
 
     notify("mode", "game")
     notify("round", None)
+    notify("panels", {p: None for p in PLAYERS})
 
-    bullet = random.randrange(CHAMBERS)          # the spin happens here, in secret
+    bullet = random.randrange(CHAMBERS)     # secret, chosen once per round
+    shots = 0
+    shooter = "P1"
 
-    for pull in range(CHAMBERS):
-        shooter = PLAYERS[pull % 2]              # P1, P2, P1, ...
-        for p in PLAYERS:
-            notify("status", {"player": p,
-                              "text": "YOUR TURN" if p == shooter else "WAIT"})
-        notify("message", "PULL!")
+    while True:
+        other = OTHER[shooter]
+        notify("message", NAMES[shooter])
+        notify("status", {"player": shooter,
+                          "text": "RED shoot them  GREEN shoot yourself  BLUE pass"})
+        notify("status", {"player": other, "text": "waiting for the other player"})
 
-        # wait for the shooter's button (presses from the other player are ignored)
-        board.reset()
-        board.lobby()
-        while True:
-            if stop.is_set():
-                board.reset()
-                return None
-            events = board.read_events()
-            if any(p == shooter and kind == "READY" for p, kind, _, _ in events):
-                break
-            pause(0.01, stop)
+        colour = wait_for_colour(board, shooter, stop)
+        if colour is None:
+            board.reset()
+            return None
 
-        if pull == bullet:
+        if colour == "blue":
+            notify("message", "GAME OVER")
+            board.reset()
+            return None
+
+        target = other if colour == "red" else shooter
+        hit = shots == bullet
+        shots += 1
+
+        if hit:
             notify("message", "BANG!")
-            loser = shooter
-            winner = PLAYERS[(pull + 1) % 2]
-            notify("status", {"player": loser, "text": "YOU'RE DONE"})
+            winner = OTHER[target]
+            notify("status", {"player": target, "text": "YOU'RE DONE"})
             notify("status", {"player": winner, "text": "SURVIVED"})
             board.reset()
-            result = f"{NAMES[loser]} LOSES!"
+            result = f"{NAMES[target]} LOSES!"
             notify("result", result)
             return result
 
         notify("message", "CLICK")
-        notify("status", {"player": shooter, "text": f"chamber {pull + 1}: empty"})
-        if not pause(random.uniform(1.0, 2.0), stop):
+        notify("status", {"player": shooter, "text": f"chamber {shots}: empty"})
+        if not pause(1.5, stop):
             board.reset()
             return None
-
-    board.reset()                                # unreachable, but keeps the file safe
-    return None
+        shooter = other

@@ -81,18 +81,20 @@ def run_duel(board, notify, stop, reveal_at_draw):
         targets = {}
         notify("panels", {p: None for p in PLAYERS})
     else:
-        color = random.choice(COLORS)
-        targets = {p: color for p in PLAYERS}
+        called = random.choice(COLORS)
+        targets = {p: called for p in PLAYERS}
         notify("panels", dict(targets))
+
+    if not reveal_at_draw:
+        notify("message", f"{called.upper()}!")
+        notify("status", {"player": "P1", "text": f"PRESS {called.upper()}"})
+        notify("status", {"player": "P2", "text": f"PRESS {called.upper()}"})
+        if not pause(2, stop):
+            return None
 
     notify("message", "READY")
     if not pause(1, stop):
         return None
-    for n in range(COUNTDOWN_S, 0, -1):
-        notify("message", str(n))
-        if not pause(1, stop):
-            return None
-    notify("message", "")
 
     # Random wait: presses now are EARLY
     board.wait()
