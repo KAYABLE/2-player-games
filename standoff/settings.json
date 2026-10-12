@@ -3,24 +3,24 @@
     "P1": {
       "pins": {
         "red": 4,
-        "green": 16,
-        "blue": 17,
-        "led": 25
+        "green": 5,
+        "blue": 15,
+        "led": 2
       },
-      "target": ""
+      "target": "192.168.137.8"
     },
     "P2": {
       "pins": {
-        "red": 18,
-        "green": 19,
-        "blue": 21,
-        "led": 22
+        "red": 14,
+        "green": 12,
+        "blue": 13,
+        "led": 2
       },
-      "target": ""
+      "target": "192.168.137.147"
     }
   },
   "connection": "network",
-  "emulate": true,
+  "emulate": false,
   "keys": {
     "P1": [
       "a",
@@ -28,9 +28,9 @@
       "d"
     ],
     "P2": [
-      ";",
+      "k",
       "l",
-      "k"
+      ";"
     ]
   },
   "pins": {
